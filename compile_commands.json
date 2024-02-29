@@ -1,0 +1,24 @@
+[
+  {
+    "arguments": [
+      "/usr/bin/gcc",
+      "-g3",
+      "-g3",
+      "-c",
+      "worker.c"
+    ],
+    "directory": "/home/phamwich/Dev/work/cs4760project2",
+    "file": "/home/phamwich/Dev/work/cs4760project2/worker.c"
+  },
+  {
+    "arguments": [
+      "/usr/bin/gcc",
+      "-g3",
+      "-g3",
+      "-c",
+      "oss.c"
+    ],
+    "directory": "/home/phamwich/Dev/work/cs4760project2",
+    "file": "/home/phamwich/Dev/work/cs4760project2/oss.c"
+  }
+]
