@@ -8,6 +8,8 @@
 #include<math.h>
 #include<signal.h>
 #include<sys/time.h>
+#include<getopt.h>
+#include<string.h>
 
 #define SHMKEY1 2031535
 #define SHMKEY2 2031536
@@ -41,6 +43,11 @@ static int setupitimer(void);
 //test
 
 
+typedef struct msgbuffer {
+    long mtype;
+    char strData[100];
+    int intData;
+} msgbuffer;
 
 
 
@@ -49,15 +56,17 @@ typedef struct{
     int simul;
     int timelimit;
     int interval;
+    char logfile[20];
 } options_t;
 
 
 void print_usage(const char * app){
-    fprintf(stderr, "usage: %s [-h] [-n proc] [-s simul] [-t timeLimitForChildren] [-i intervalInMsToLaunchChildren]\n", app);
+    fprintf(stderr, "usage: %s [-h] [-n proc] [-s simul] [-t timeLimitForChildren] [-i intervalInMsToLaunchChildren] [-f logfile]\n", app);
     fprintf(stderr, "   proc is the total amount of children.\n");
     fprintf(stderr, "   simul is how many children can run simultaneously.\n");
     fprintf(stderr, "   timeLimitForChildren is the bound of time that a child process should be launched for.\n");
-    fprintf(stderr, "   intervalInMsToLaunchChildren species how often you should launch a child.\n");
+    fprintf(stderr, "   intervalInMsToLaunchChildren specifies how often you should launch a child.\n");
+    fprintf(stderr, "   logfile is the input for the name of the logfile for oss to write into.\n");
 }
 
 void printProcessTable(int PID, int SysClockS, int SysClockNano, struct PCB processTable[20]){
@@ -65,9 +74,9 @@ void printProcessTable(int PID, int SysClockS, int SysClockNano, struct PCB proc
     printf("Process Table:\n");
     printf("Entry     Occupied  PID       StartS    Startn\n"); 
     for(int i = 0; i<20; i++){
-        //if((processTable[i].occupied) == 1){
+        if((processTable[i].occupied) == 1){
             printf("%d         %d         %d         %d         %d\n", i, processTable[i].occupied, processTable[i].pid, processTable[i].startSeconds, processTable[i].startNano);
-        //}
+        }
         
     } 
 }
@@ -112,14 +121,15 @@ int main(int argc, char* argv[]){
 
 
     options_t options;
-    options.proc = 2; //n
-    options.simul = 3; //s
-    options.timelimit = 5; //t
+    options.proc = 1; //n
+    options.simul = 1; //s
+    options.timelimit = 1; //t
     options.interval = 1; //i
+    strcpy(options.logfile, "touch Test.txt");
 
     //Set up user input
 
-    const char optstr[] = "hn:s:t:i:";
+    const char optstr[] = "hn:s:t:i:f:";
 
     char opt;
     while((opt = getopt(argc, argv, optstr))!= -1){
@@ -139,6 +149,10 @@ int main(int argc, char* argv[]){
             case 'i':
                 options.interval = atoi(optarg);
                 break;
+            case 'f':
+                strcpy(options.logfile, "touch ");
+                strcat(options.logfile, optarg);
+                break;
             default:
                 printf("Invalid options %c\n", optopt);
                 print_usage(argv[0]);
@@ -146,14 +160,21 @@ int main(int argc, char* argv[]){
         }
     }
     
+    printf("Test: %s", options.logfile);
+    
+
+
     //Set up variables;
     pid_t pid;
     
-    int status = 0;
     int seconds = 0;
     int nano = 0;
     *sharedSeconds = seconds;
     *sharedNano = nano;
+
+    //Variables for message queue
+    int msqid;
+    key_t key;
     
     if(setupinterrupt() == -1){
         perror("Failed to set up handler for SIGPROF");
@@ -164,13 +185,29 @@ int main(int argc, char* argv[]){
         return 1;
     }
 
+    //Set up file
+    system(options.logfile);
+
+    //get a key for message queue
+    if((key = ftok("msgq.txt", 1)) == -1){
+        perror("ftok");
+        exit(1);
+    }
+
+    //create our message queue
+    if((msqid = msgget(key, PERMS | IPC_CREAT)) == -1){
+        perror("msgget in parent");
+        exit(1);
+    }
+
+
+
+
     //Work
-    int terminatedChild = 0;
     int childrenLaunched = 0; 
     int childFinished = 0;
     int simulCount = 0;
     int launchFlag = 0;
-    int interval = 0;
     int childrenFinishedCount = 0;
 
         //Implement simultaneous children then time interval children then total amount of children:
@@ -182,27 +219,6 @@ int main(int argc, char* argv[]){
     while(childrenFinishedCount < options.proc){
        
         incrementClock(sharedSeconds, sharedNano);
-        //Deallocate Array
-        
-        /*
-        terminatedChild = waitpid(-1, &status, WNOHANG);
-        if(terminatedChild > 0){
-            simulCount--;
-            int index = 0;
-            int arrayDeleted = 0;
-            while(!arrayDeleted){
-                printf("test\n");
-                if(processTable[index].pid == terminatedChild){
-                    arrayDeleted = 1;
-                    processTable[index].occupied = 0;
-                    processTable[index].pid = 0;
-                    processTable[index].startSeconds = 0;
-                    processTable[index].startNano = 0;
-                    index++;
-                }
-            }
-        }
-        */
 
         //Print Table
         
@@ -210,12 +226,9 @@ int main(int argc, char* argv[]){
             printProcessTable(getpid(), *sharedSeconds, *sharedNano, processTable);
         }
         
-       
-
         //Launch Children
         if(launchFlag == 0 && childrenLaunched < options.proc && simulCount < options.simul && (*sharedSeconds)%options.interval == 0){
             launchFlag = 1;
-            interval = 0;
             simulCount++;
             childrenLaunched++;
             pid = fork();
@@ -236,8 +249,6 @@ int main(int argc, char* argv[]){
         else if (pid > 0 && launchFlag>0){
             launchFlag = 0;
            
-            
-            
             //Insert child into PCB
             int index = 0;
             int arrayInserted = 0;
