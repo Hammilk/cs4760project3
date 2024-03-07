@@ -10,13 +10,16 @@
 #include<sys/time.h>
 #include<getopt.h>
 #include<string.h>
+#include<sys/msg.h>
+#include<errno.h>
+
 
 #define SHMKEY1 2031535
 #define SHMKEY2 2031536
 #define SHMKEY3 2031537
 #define BUFF_SZ sizeof (int)
 #define MAXDIGITS 3
-
+#define PERMS 0644
 
 struct PCB{
     int occupied; //Either true or false
@@ -45,7 +48,7 @@ static int setupitimer(void);
 
 typedef struct msgbuffer {
     long mtype;
-    char strData[100];
+    char strData[10];
     int intData;
 } msgbuffer;
 
@@ -82,17 +85,28 @@ void printProcessTable(int PID, int SysClockS, int SysClockNano, struct PCB proc
 }
 
 void incrementClock(int *seconds, int *nano){
-    (*nano) += 100;
+    (*nano) += 1000000;
     if((*nano) >= (pow(10, 9))){
          (*nano) -= (pow(10, 9));
          (*seconds)++;
     }
 }
 
+int nextChild(int currentChild, struct PCB processTable[20]){
+    currentChild++;
+    while(processTable[currentChild].occupied == 0){
+        currentChild++;
+        if(currentChild > 19){ //Resets count to 0 when upper bound is reached
+            currentChild = 0;
+        }
+    }
+    return currentChild;
+}
+
 int main(int argc, char* argv[]){
  
     //Set up shared memory
-    shmidSeconds = shmget(SHMKEY1, BUFF_SZ, 0777 | IPC_CREAT);
+    shmidSeconds = shmget(SHMKEY1, BUFF_SZ, 0666 | IPC_CREAT);
     if(shmidSeconds == -1){
         fprintf(stderr, "error in shmget 1.0\n");
         exit(1);
@@ -125,7 +139,7 @@ int main(int argc, char* argv[]){
     options.simul = 1; //s
     options.timelimit = 1; //t
     options.interval = 1; //i
-    strcpy(options.logfile, "touch Test.txt");
+    strcpy(options.logfile, "touch msgq.txt");
 
     //Set up user input
 
@@ -159,11 +173,7 @@ int main(int argc, char* argv[]){
                 return(EXIT_FAILURE);
         }
     }
-    
-    printf("Test: %s", options.logfile);
-    
-
-
+   
     //Set up variables;
     pid_t pid;
     
@@ -175,7 +185,10 @@ int main(int argc, char* argv[]){
     //Variables for message queue
     int msqid;
     key_t key;
+    msgbuffer buff;
     
+    buff.mtype = 1;
+
     if(setupinterrupt() == -1){
         perror("Failed to set up handler for SIGPROF");
         return 1;
@@ -200,8 +213,7 @@ int main(int argc, char* argv[]){
         exit(1);
     }
 
-
-
+    
 
     //Work
     int childrenLaunched = 0; 
@@ -209,6 +221,7 @@ int main(int argc, char* argv[]){
     int simulCount = 0;
     int launchFlag = 0;
     int childrenFinishedCount = 0;
+    int currentChild = 0;
 
         //Implement simultaneous children then time interval children then total amount of children:
     //Total children: options.proc
@@ -225,7 +238,36 @@ int main(int argc, char* argv[]){
         if(*sharedNano % (int)(pow(10,9)/2) == 0 || *sharedNano == 0){ //WILL BREAK IF YOU CHANGE INCREMENTS
             printProcessTable(getpid(), *sharedSeconds, *sharedNano, processTable);
         }
-        
+
+        //Calculate Next child
+        if(simulCount > 0){
+            currentChild = nextChild(currentChild, processTable);
+           // printf("Current Child is: %d\n", currentChild);
+            
+            
+            ///////////////////Send message to child
+            
+            buff.mtype = processTable[currentChild].pid;
+            buff.intData = processTable[currentChild].pid;
+            strcpy(buff.strData, "Sent");
+            if(msgsnd(msqid, &buff, sizeof(msgbuffer)-sizeof(long), 0) == -1){
+                perror("msgsnd to child failed\n");
+                exit(1);
+            }
+           // printf("Message A1:\n    strData is %s and intData is %d\n", buff.strData, buff.intData);
+            
+           
+            //msgbuffer rcvbuff;
+            if(msgrcv(msqid, &buff, sizeof(msgbuffer), getpid(), 0) == -1){
+                perror("failed to receive message in parent\n");
+                exit(1);
+            }
+            printf("Message A2:\n    strData is %s and intData is %d\n", buff.strData, buff.intData);
+            
+
+
+        }
+
         //Launch Children
         if(launchFlag == 0 && childrenLaunched < options.proc && simulCount < options.simul && (*sharedSeconds)%options.interval == 0){
             launchFlag = 1;
@@ -272,10 +314,12 @@ int main(int argc, char* argv[]){
             
         }
         else if (pid > 0){ 
-            childFinished = waitpid(-1, NULL, WNOHANG);
-            if(childFinished > 0){
+            
+            if(atoi(buff.strData) == 0){
+                childFinished = wait(0);
                 simulCount--;
-               
+                
+                //Delete child from PCB
                 for(int i = 0; i < 20; i++){
                     if(processTable[i].pid == childFinished){
                         processTable[i].occupied = 0;
@@ -290,6 +334,15 @@ int main(int argc, char* argv[]){
         }
     }
     printf("Out of loop\n");
+    
+    //Remove message queues 
+    if(msgctl(msqid, IPC_RMID, NULL) == -1){
+        perror("msgctl to get rid of queue in parent failed");
+        exit(1);
+    }
+    
+    
+    //Remove shared memory
     shmdt(sharedSeconds);
     shmdt(sharedNano);
     shmctl(shmidSeconds, IPC_RMID, NULL);
