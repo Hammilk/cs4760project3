@@ -130,8 +130,13 @@ void fprintProcessTable(int PID, int SysClockS, int SysClockNano, struct PCB pro
 }
 
 
-void incrementClock(int *seconds, int *nano){
-    (*nano) += 10000;
+void incrementClock(int *seconds, int *nano, int count){
+    if(count == 0){
+        (*nano) += 2.5*pow(10, 8);
+    }
+    else{
+      (*nano)+= (2.5*pow(10,8))/count;
+    }  
     if((*nano) >= (pow(10, 9))){
          (*nano) -= (pow(10, 9));
          (*seconds)++;
@@ -148,6 +153,11 @@ int nextChild(int currentChild, struct PCB processTable[20]){
     }
     return currentChild;
 }
+
+
+
+
+
 
 int main(int argc, char* argv[]){
  
@@ -275,20 +285,35 @@ int main(int argc, char* argv[]){
     int simulCount = 0;
     int launchFlag = 0;
     int childrenFinishedCount = 0;
-    int currentChild = 0;
+    int currentChild = -1;
     int randSecondLimit;
     int randNanoLimit;
+    int altFlag = 0;
+    int launchSeconds;
+    int launchNano;
+   
 
     while(childrenFinishedCount < options.proc){
        
-        incrementClock(sharedSeconds, sharedNano);
+        incrementClock(sharedSeconds, sharedNano, simulCount);
 
         //Print Table
+       
         
-        if(*sharedNano % (int)(pow(10,9)/2) == 0 || *sharedNano == 0){ //WILL BREAK IF YOU CHANGE INCREMENTS
+
+        if(altFlag == 0 && (*sharedNano) > (pow(10, 9) / 2)){
+            altFlag = 1;
             printProcessTable(getpid(), *sharedSeconds, *sharedNano, processTable);
             fprintProcessTable(getpid(), *sharedSeconds, *sharedNano, processTable, fptr);
         }
+        if(altFlag == 1 && (*sharedNano) < (pow(10, 9) / 2)){
+            altFlag = 0;
+             printProcessTable(getpid(), *sharedSeconds, *sharedNano, processTable);
+            fprintProcessTable(getpid(), *sharedSeconds, *sharedNano, processTable, fptr);
+        }
+
+
+        
 
         //Calculate Next child
         if(simulCount > 0){
@@ -303,15 +328,20 @@ int main(int argc, char* argv[]){
                 perror("msgsnd to child failed\n");
                 exit(1);
             }
+            fprintf(fptr, "OSS: Sending message to worker %d, PID %d at time %d:%d\n", currentChild + 1, processTable[currentChild].pid, *sharedSeconds, *sharedNano);
            
             if(msgrcv(msqid, &buff, sizeof(msgbuffer), getpid(), 0) == -1){
                 perror("failed to receive message in parent\n");
                 exit(1);
             }
+            fprintf(fptr, "OSS: Receiving message from worker %d PID %d at time %d:%d\n", currentChild + 1, processTable[currentChild].pid, *sharedSeconds, *sharedNano);
         }
 
         //Launch Children
-        if(launchFlag == 0 && childrenLaunched < options.proc && simulCount < options.simul && (*sharedSeconds)%options.interval == 0){
+        if(launchFlag == 0 && childrenLaunched < options.proc && simulCount < options.simul && ((*sharedSeconds)*pow(10, 9) + (*sharedNano)) 
+                    > ((launchSeconds * pow(10, 9)) + launchNano + (options.interval * pow(10, 6)))){
+            launchSeconds = (*sharedSeconds);
+            launchNano = (*sharedNano);
             launchFlag = 1;
             simulCount++;
             childrenLaunched++;

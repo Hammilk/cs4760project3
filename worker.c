@@ -75,6 +75,7 @@ int main(int argc, char** argv){
     int timeLimitNano = atoi(argv[2]) + sysClockNano; 
     int timeElapsed;
     int timer = 0;
+    int iterations = 0;
 
     printf("WORKER PID: %d PPID: %d SysClockS: %d SysClockNano: %d TermTimeS: %d TermTimeNano: %d\n--Just Starting\n"
             , pid, ppid, *sharedSeconds, *sharedNano, timeLimitSeconds, timeLimitNano);
@@ -88,8 +89,7 @@ int main(int argc, char** argv){
         }
        
                    
-
-        timeElapsed = *sharedSeconds - sysClockS;
+        iterations++;
         
         
         /*
@@ -100,8 +100,8 @@ int main(int argc, char** argv){
         }
         */
         
-        printf("WORKER PID: %d PPID: %d SysClockS: %d SysClockNano: %d TermTimeS: %d TermTimeNano: %d\n--%d seconds have passed since starting\n"
-            , pid, ppid, *sharedSeconds, *sharedNano, timeLimitSeconds, timeLimitNano, timeElapsed);
+        printf("WORKER PID: %d PPID: %d SysClockS: %d SysClockNano: %d TermTimeS: %d TermTimeNano: %d\n--%d iterations have passed since starting\n"
+            , pid, ppid, *sharedSeconds, *sharedNano, timeLimitSeconds, timeLimitNano, iterations);
         
         
         //Send message back to parent
@@ -118,8 +118,8 @@ int main(int argc, char** argv){
     
     
    
-    printf("WORKER PID: %d PPID: %d SysClockS: %d SysClockNano: %d TermTimeS: %d TermTimeNano: %d\n--Terminating\n"
-            , pid, ppid, *sharedSeconds, *sharedNano, timeLimitSeconds, timeLimitNano);
+    printf("WORKER PID: %d PPID: %d SysClockS: %d SysClockNano: %d TermTimeS: %d TermTimeNano: %d\n--Terminating after sending message back to oss after %d iterations.\n"
+            , pid, ppid, *sharedSeconds, *sharedNano, timeLimitSeconds, timeLimitNano, iterations);
     
     //Send terminating message back to parent
     buff.mtype = ppid;
