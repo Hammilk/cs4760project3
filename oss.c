@@ -1,3 +1,15 @@
+/*
+ *
+ *Project Title: Project 3 - Message Queues
+ *Author: David Pham
+ * 3/7/2024
+ *
+ */
+
+
+#define _POSIX_SOURCE
+
+
 #include<stdio.h>
 #include<sys/types.h>
 #include<stdlib.h>
@@ -12,7 +24,6 @@
 #include<string.h>
 #include<sys/msg.h>
 #include<errno.h>
-
 
 #define SHMKEY1 2031535
 #define SHMKEY2 2031536
@@ -36,15 +47,37 @@ int shmidNano;
 
 struct PCB processTable[20];
 
-static void myhandler(int);
+static void myhandler(int s){
+    printf("Got signal, terminated\n");
+    for(int i = 0; i < 20; i++){
+        if(processTable[i].occupied == 1){
+            kill(processTable[i].pid, SIGTERM);
+        }
+    }
+  
+    shmdt(sharedSeconds);
+    shmdt(sharedNano);
+    shmctl(shmidSeconds, IPC_RMID, NULL); 
+    shmctl(shmidNano, IPC_RMID, NULL);
+    exit(1);
+}
 
-static int setupinterrupt(void);
+static int setupinterrupt(void){
+    struct sigaction act;
+    act.sa_handler = myhandler;
+    act.sa_flags = 0;
+    return(sigemptyset(&act.sa_mask) || sigaction(SIGINT, &act, NULL) || sigaction(SIGPROF, &act, NULL));
+}
 
-static int setupitimer(void);
+static int setupitimer(void){
+    struct itimerval value;
+    value.it_interval.tv_sec = 5;
+    value.it_interval.tv_usec = 0;
+    value.it_value = value.it_interval;
+    return (setitimer(ITIMER_PROF, &value, NULL));
+}
 
-
-//test
-
+   
 
 typedef struct msgbuffer {
     long mtype;
@@ -84,8 +117,22 @@ void printProcessTable(int PID, int SysClockS, int SysClockNano, struct PCB proc
     } 
 }
 
+
+void fprintProcessTable(int PID, int SysClockS, int SysClockNano, struct PCB processTable[20], FILE *fptr){
+    fprintf(fptr, "OSS PID %d SysClockS: %d SysClockNano: %d\n", PID, SysClockS, SysClockNano);
+    fprintf(fptr, "Process Table:\n");
+    fprintf(fptr, "Entry     Occupied  PID       StartS    Startn\n"); 
+    for(int i = 0; i<20; i++){
+        if((processTable[i].occupied) == 1){
+            fprintf(fptr, "%d         %d         %d         %d         %d\n", i, processTable[i].occupied, processTable[i].pid, processTable[i].startSeconds, processTable[i].startNano);
+        }
+        
+    } 
+}
+
+
 void incrementClock(int *seconds, int *nano){
-    (*nano) += 1000000;
+    (*nano) += 10000;
     if((*nano) >= (pow(10, 9))){
          (*nano) -= (pow(10, 9));
          (*seconds)++;
@@ -121,10 +168,7 @@ int main(int argc, char* argv[]){
     }
     sharedNano=shmat(shmidNano, 0, 0);
 
-
-
     //Set up structs defaults
-        
    
     for(int i = 0; i < 20; i++){
             processTable[i].occupied = 0;
@@ -139,7 +183,7 @@ int main(int argc, char* argv[]){
     options.simul = 1; //s
     options.timelimit = 1; //t
     options.interval = 1; //i
-    strcpy(options.logfile, "touch msgq.txt");
+    strcpy(options.logfile, "msgq.txt"); //f
 
     //Set up user input
 
@@ -164,8 +208,7 @@ int main(int argc, char* argv[]){
                 options.interval = atoi(optarg);
                 break;
             case 'f':
-                strcpy(options.logfile, "touch ");
-                strcat(options.logfile, optarg);
+                strcpy(options.logfile, optarg);
                 break;
             default:
                 printf("Invalid options %c\n", optopt);
@@ -176,7 +219,7 @@ int main(int argc, char* argv[]){
    
     //Set up variables;
     pid_t pid;
-    
+     
     int seconds = 0;
     int nano = 0;
     *sharedSeconds = seconds;
@@ -186,9 +229,10 @@ int main(int argc, char* argv[]){
     int msqid;
     key_t key;
     msgbuffer buff;
-    
     buff.mtype = 1;
 
+
+    //Set up timers
     if(setupinterrupt() == -1){
         perror("Failed to set up handler for SIGPROF");
         return 1;
@@ -199,10 +243,23 @@ int main(int argc, char* argv[]){
     }
 
     //Set up file
-    system(options.logfile);
+    char commandString[20];
+    strcpy(commandString, "touch "); 
+    strcat(commandString, options.logfile);
+    system(commandString);
+
+    FILE *fptr;
+    fptr = fopen(options.logfile, "w");
+   
+
+    if(fptr == NULL){
+        fprintf(stderr, "Error: file has not opened.\n");
+        exit(0);
+    }
+
 
     //get a key for message queue
-    if((key = ftok("msgq.txt", 1)) == -1){
+    if((key = ftok("oss.c", 1)) == -1){
         perror("ftok");
         exit(1);
     }
@@ -213,21 +270,15 @@ int main(int argc, char* argv[]){
         exit(1);
     }
 
-    
-
-    //Work
+    //Variables
     int childrenLaunched = 0; 
     int childFinished = 0;
     int simulCount = 0;
     int launchFlag = 0;
     int childrenFinishedCount = 0;
     int currentChild = 0;
-
-        //Implement simultaneous children then time interval children then total amount of children:
-    //Total children: options.proc
-    //simul children: options.simul
-    //interval of children: options.interval
-   
+    int randSecondLimit;
+    int randNanoLimit;
 
     while(childrenFinishedCount < options.proc){
        
@@ -237,15 +288,14 @@ int main(int argc, char* argv[]){
         
         if(*sharedNano % (int)(pow(10,9)/2) == 0 || *sharedNano == 0){ //WILL BREAK IF YOU CHANGE INCREMENTS
             printProcessTable(getpid(), *sharedSeconds, *sharedNano, processTable);
+            fprintProcessTable(getpid(), *sharedSeconds, *sharedNano, processTable, fptr);
         }
 
         //Calculate Next child
         if(simulCount > 0){
             currentChild = nextChild(currentChild, processTable);
-           // printf("Current Child is: %d\n", currentChild);
             
-            
-            ///////////////////Send message to child
+            //Send message to child
             
             buff.mtype = processTable[currentChild].pid;
             buff.intData = processTable[currentChild].pid;
@@ -254,18 +304,11 @@ int main(int argc, char* argv[]){
                 perror("msgsnd to child failed\n");
                 exit(1);
             }
-           // printf("Message A1:\n    strData is %s and intData is %d\n", buff.strData, buff.intData);
-            
            
-            //msgbuffer rcvbuff;
             if(msgrcv(msqid, &buff, sizeof(msgbuffer), getpid(), 0) == -1){
                 perror("failed to receive message in parent\n");
                 exit(1);
             }
-            printf("Message A2:\n    strData is %s and intData is %d\n", buff.strData, buff.intData);
-            
-
-
         }
 
         //Launch Children
@@ -278,12 +321,19 @@ int main(int argc, char* argv[]){
 
         //Launch Executables
         if(pid == 0){
-            char terminatedTime[MAXDIGITS];
-            sprintf(terminatedTime, "%d", options.timelimit);
-            char * args[] = {"./worker", terminatedTime};
+
+            //Generates a random bounded time limit for child
+            randSecondLimit = rand() % (options.timelimit);
+            randNanoLimit = rand() % 1000000000;          
+
+            char terminatedSeconds[MAXDIGITS];
+            char terminatedNano[MAXDIGITS];
+            sprintf(terminatedSeconds, "%d", randSecondLimit);
+            sprintf(terminatedNano, "%d", randNanoLimit);
+            char * args[] = {"./worker", terminatedSeconds, terminatedNano};
 
             //Run Executable
-            execlp(args[0], args[0], args[1],  NULL);
+            execlp(args[0], args[0], args[1], args[2], NULL);
             printf("Exec failed\n");
             exit(1);
         }
@@ -316,6 +366,7 @@ int main(int argc, char* argv[]){
         else if (pid > 0){ 
             
             if(atoi(buff.strData) == 0){
+                strcpy(buff.strData, "1"); //Clears buffer so loop doesn't go back into this section until a new message is sent
                 childFinished = wait(0);
                 simulCount--;
                 
@@ -330,11 +381,15 @@ int main(int argc, char* argv[]){
                 }
                 childFinished = 0;
                 childrenFinishedCount++;
+                printf("Children Finished Count: %d\n", childrenFinishedCount);
             }
         }
     }
-    printf("Out of loop\n");
     
+   
+    //Close file
+    fclose(fptr);
+
     //Remove message queues 
     if(msgctl(msqid, IPC_RMID, NULL) == -1){
         perror("msgctl to get rid of queue in parent failed");
@@ -351,38 +406,6 @@ int main(int argc, char* argv[]){
     return 0;
     
 }
-
-
-static void myhandler(int s){
-    printf("Got signal, terminated\n");
-    for(int i = 0; i < 20; i++){
-        if(processTable[i].occupied == 1){
-            kill(processTable[i].pid, SIGTERM);
-        }
-    }
-  
-    shmdt(sharedSeconds);
-    shmdt(sharedNano);
-    shmctl(shmidSeconds, IPC_RMID, NULL); 
-    shmctl(shmidNano, IPC_RMID, NULL);
-    exit(1);
-}
-
-static int setupinterrupt(void){
-    struct sigaction act;
-    act.sa_handler = myhandler;
-    act.sa_flags = 0;
-    return(sigemptyset(&act.sa_mask) || sigaction(SIGINT, &act, NULL) || sigaction(SIGPROF, &act, NULL));
-}
-
-static int setupitimer(void){
-    struct itimerval value;
-    value.it_interval.tv_sec = 60;
-    value.it_interval.tv_usec = 0;
-    value.it_value = value.it_interval;
-    return (setitimer(ITIMER_PROF, &value, NULL));
-}
-
 
 
 

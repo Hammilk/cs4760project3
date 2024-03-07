@@ -28,7 +28,7 @@ int main(int argc, char** argv){
     int msqid = 0;
     key_t key;
 
-    if((key = ftok("msgq.txt", 1)) == -1){ //TODO: pass text file name
+    if((key = ftok("oss.c", 1)) == -1){
         perror("ftok");
         exit(1);
     }
@@ -72,7 +72,7 @@ int main(int argc, char** argv){
     int sysClockS = *sharedSeconds; //Starting seconds
     int sysClockNano = *sharedNano; //Starting nanoseconds
     int timeLimitSeconds = atoi(argv[1]) + sysClockS; //upper bound, passed from calling parent
-    int timeLimitNano = sysClockNano; 
+    int timeLimitNano = atoi(argv[2]) + sysClockNano; 
     int timeElapsed;
     int timer = 0;
 
@@ -86,7 +86,6 @@ int main(int argc, char** argv){
             perror("Failed to receive message\n");
             exit(1);
         }
-        printf("Message B1:\n    strData is %s and intData is %d\n", buff.strData, buff.intData);
        
                    
 
@@ -101,8 +100,8 @@ int main(int argc, char** argv){
         }
         */
         
-       // printf("WORKER PID: %d PPID: %d SysClockS: %d SysClockNano: %d TermTimeS: %d TermTimeNano: %d\n--%d seconds have passed since starting\n"
-        //    , pid, ppid, *sharedSeconds, *sharedNano, timeLimitSeconds, timeLimitNano, timeElapsed);
+        printf("WORKER PID: %d PPID: %d SysClockS: %d SysClockNano: %d TermTimeS: %d TermTimeNano: %d\n--%d seconds have passed since starting\n"
+            , pid, ppid, *sharedSeconds, *sharedNano, timeLimitSeconds, timeLimitNano, timeElapsed);
         
         
         //Send message back to parent
@@ -114,7 +113,6 @@ int main(int argc, char** argv){
             perror("msgsnd to parent failed\n");
             exit(1);
         }
-        printf("Message B2:\n    mtype is %ld, strData is %s and intData is %d\n", buff.mtype, buff.strData, buff.intData);
 
     }
     
@@ -132,7 +130,6 @@ int main(int argc, char** argv){
         perror("msgsnd to parent failed\n");
         exit(1);
     }
-    printf("final message sent from child\n");
 
     //Unattach shared memory pointer
     shmdt(sharedSeconds);
