@@ -285,7 +285,7 @@ int main(int argc, char* argv[]){
     int simulCount = 0;
     int launchFlag = 0;
     int childrenFinishedCount = 0;
-    int currentChild = -1;
+    int currentChild = -1; //Start at -1 to first child below will start at child 0
     int randSecondLimit;
     int randNanoLimit;
     int altFlag = 0;
@@ -328,13 +328,13 @@ int main(int argc, char* argv[]){
                 perror("msgsnd to child failed\n");
                 exit(1);
             }
-            fprintf(fptr, "OSS: Sending message to worker %d, PID %d at time %d:%d\n", currentChild + 1, processTable[currentChild].pid, *sharedSeconds, *sharedNano);
+            fprintf(fptr, "OSS: Sending message to worker %d, PID %d at time %d:%d\n", currentChild, processTable[currentChild].pid, *sharedSeconds, *sharedNano);
            
             if(msgrcv(msqid, &buff, sizeof(msgbuffer), getpid(), 0) == -1){
                 perror("failed to receive message in parent\n");
                 exit(1);
             }
-            fprintf(fptr, "OSS: Receiving message from worker %d PID %d at time %d:%d\n", currentChild + 1, processTable[currentChild].pid, *sharedSeconds, *sharedNano);
+            fprintf(fptr, "OSS: Receiving message from worker %d PID %d at time %d:%d\n", currentChild, processTable[currentChild].pid, *sharedSeconds, *sharedNano);
         }
 
         //Launch Children
